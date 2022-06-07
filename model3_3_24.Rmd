@@ -1,0 +1,653 @@
+---
+title: "A Computational Literature Review of Machine Intelligence in Education using Probalistic Topic Modeling"
+author: "Jeanne McClure"
+date: "`r format(Sys.Date(),'%B %e, %Y')`"
+output:
+  html_document:
+    code_folding: hide
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+editor_options:
+  markdown:
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. PURPOSE
+
+### 1a. Motivation and Focus
+
+This research aims to illustrate the use of concepts, techniques, and mining process tools generate topics from a literature review looking at what the current state of AI or Machine Intelligence is in Education.
+
+Methods for conducting semantic literature reviews are lengthy and require rigorous attention to reading and coding. In order to aquire a sense of what the most important topics are within the literature, the researcher needs to quickly assess an overview of what journals are most important with answering the research questions.
+
+
+
+Coppin, is the ability of machines to adapt to new situations, deal with emerging situations, solve problems, answer questions, device plans, and perform various other functions that require some level of intelligence typically evident in human beings. Whitby defined artificial intelligence as the study of intelligence behavior in human beings, animals, and machines and endeavoring to engineer such behavior into an artifact, such as computers and computer-related technologies
+
+**Guiding Questions:**
+
+1. What is the current state of research of machine intelligence in educational contexts? 
+2. In what ways, if any, is machine intelligence supporting teaching and learning?
+3. What Machine Intellience topics have emerged over time in teaching and learning?
+
+### 1b. Load Libraries
+
+First we load our libraries to read in packages that we will use to answer our questions. Focusing on Topic Modeling packages that will benefit our research. We will also set our parameters to assist with colors, theme and style. 
+```{r, warning = FALSE, message = FALSE}
+library(tidyverse)
+library(data.table)
+library(dendextend)
+library(tidytext) 
+library(topicmodels) 
+library(tidyr) 
+library(dplyr) 
+library(ggplot2) 
+library(kableExtra) 
+library(knitr) 
+library(ggrepel) 
+library(gridExtra)
+library(formattable) 
+library(tm) 
+library(circlize) 
+library(plotly) 
+library(wordcloud2)
+library(lubridate)
+library(stringr)
+library(SnowballC)
+if(!require("quanteda")) {install.packages("quanteda"); library("quanteda")}
+if(!require("ldatuning")) {install.packages("ldatuning"); library("ldatuning")}
+
+#SET PARAMETERS
+#define colors to use throughout
+my_colors <- c("#E69F00", "#56B4E9", "#009E73", "#CC79A7", "#D55E00", "#D65E00")
+
+theme_plot <- function(aticks = element_blank(),
+                         pgminor = element_blank(),
+                         lt = element_blank(),
+                         lp = "none")
+{
+  theme(plot.title = element_text(hjust = 0.5), #center the title
+        axis.ticks = aticks, #set axis ticks to on or off
+        panel.grid.minor = pgminor, #turn on or off the minor grid lines
+        legend.title = lt, #turn on or off the legend title
+        legend.position = lp) #turn on or off the legend
+}
+
+#customize the text tables for consistency using HTML formatting
+my_kable_styling <- function(dat, caption) {
+  kable(dat, "html", escape = FALSE, caption = caption) %>%
+  kable_styling(bootstrap_options = c("striped", "condensed", "bordered"),
+                full_width = FALSE)
+}
+
+word_chart <- function(data, input, title) {
+  data %>%
+  #set y = 1 to just plot one variable and use word as the label
+  ggplot(aes(as.factor(row), 1, label = input, fill = factor(topic) )) +
+  #you want the words, not the points
+  geom_point(color = "transparent") +
+  #make sure the labels don't overlap
+  geom_label_repel(nudge_x = .2,  
+                   direction = "y",
+                   box.padding = 0.1,
+                   segment.color = "transparent",
+                   size = 3) +
+  facet_grid(~topic) +
+  theme_plot() +
+  theme(axis.text.y = element_blank(), axis.text.x = element_blank(),
+        #axis.title.x = element_text(size = 9),
+        panel.grid = element_blank(), panel.background = element_blank(),
+        panel.border = element_rect("lightgray", fill = NA),
+        strip.text.x = element_text(size = 9)) +
+  labs(x = NULL, y = NULL, title = title) +
+    #xlab(NULL) + ylab(NULL) +
+  #ggtitle(title) +
+  coord_flip()
+}
+```
+
+# 2. METHOD
+
+Our initial read-in data frame includes **137 observations** that include **eighteen variables**, including, Author, Title, Abstract and date. After reading in the data we will, wrangle the data. Data wrangling involves some combination of cleaning, reshaping, transforming, and merging data (Wickham &
+Grolemund, 2017). Then Cast a DTM and tokenize.
+
+### 2a. Read and Inspect the Meta-Data
+Looking at the first five observations we can see that we do not need all of the variables.  
+
+```{r, , warning = FALSE, message = FALSE}
+#read in literature review
+review_data3 <-read_csv("data/review_noCR1.csv")
+
+```
+
+Just out of curiosity let's inspect the data with a histogram to see how many papers were published per year. It looks as though 2014 was a big year for papers. Simonite (2014) excitedly writes, "2014 saw major strides in machine learning software that can gain abilities from experience." 
+```{r, warning = FALSE, message = FALSE}
+hist(review_data3$`Published Year`)
+
+```
+
+### 2b. Tidy Data
+
+Tidy data by converting to lowercase, and only select abstract, published_year, journal, field and subfield. add a unique identifier and 
+unite document as "field."
+```{r, warning = FALSE, message = FALSE}
+# convert all variable names to lower case
+names(review_data3) <- tolower(names(review_data3))
+ 
+#Clean Data and include unique identifier
+tidy_data3 <- review_data3 %>% 
+  rename(published_year = `published year`)%>%
+  select(c('title', 'abstract', 'published_year', 'journal', 'field', 'subfield')) %>% # only select 
+  mutate(number = row_number())%>%
+  unite(document, field)
+  
+# make number an as.facto
+# inspect
+tidy_data3%>%
+  head(n=2)%>%
+  kbl(caption = "First 2 - Tidy and Restructured Meta-Data") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+Now, let's inspect how many journal contributions by each journal exist.
+It looks as though the two journals with the highest paper contributions are 'International Journal of Artificial Intelligence in Education' (Springer Science & Business Media B.V.) and 'Computers in Education.'
+
+```{r, warning =FALSE, message=FALSE}
+library(ggplot2)
+
+tidy_data3 %>%
+  group_by(journal) %>%
+  summarize(abstract = n_distinct(number)) %>%
+  ggplot(aes(abstract, journal)) +
+  geom_col() +
+  scale_y_discrete(guide = guide_axis(check.overlap = TRUE)) +
+  labs(y = NULL)
+```
+
+### 2c. Unnest tokenize
+
+Here we will take the necessary steps to:
+1.  Transforming our text into "tokens"
+2.  Removing unnecessary characters, punctuation, and whitespace
+3.  Converting all text to lowercase
+4.  Removing stop words such as "the", "of", and "to"
+
+After transforming we can quickly look at the word count. We can see that "learning" and "students" are at the top. This is exciting since we have papers from five different fields.
+
+```{r, message=FALSE, warning=FALSE}
+
+#unnest
+token_words3 <- tidy_data3 %>%
+  unnest_tokens(word, abstract) %>%
+  filter(str_detect(word, "[a-z']$"),
+         !word %in% stop_words$word)
+
+
+token_words3 %>%
+  group_by(word) %>%
+  filter(n() >= 98) %>%
+  count(word, sort = TRUE)%>%
+  kbl(caption = "Tokenized Words >= 98") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+We can also look at the top words in a word cloud:
+This is a nice visualization to see the top tokenized words from the abstracts.
+```{r, warning = FALSE, message=FALSE}
+top_tokens <- token_words3 %>%
+  ungroup ()%>%  #ungroup the tokenize data to create a wordcloud
+  count(word, sort = TRUE) %>%
+  top_n(50)
+
+wordcloud2(top_tokens)
+```
+
+
+### 2d. Create Document Term Matrix and inspect 
+When organizing the MetaData we organized the journals into their respective fields. We will use the fields as the document to connet the topics later on. We have 5 documents and 3854 terms.
+
+```{r, message = FALSE, warning= FALSE}
+review_dtm3 <- token_words3 %>%
+  count(document, word, sort = TRUE) %>%
+  ungroup()
+
+cast_dtm3 <- review_dtm3 %>%
+  cast_dtm(document, word, n)
+
+dim(cast_dtm3)
+cast_dtm3
+```
+
+
+We can inspect five documents looking at 8 words within the DTM.
+```{r}
+#look at 4 documents and 8 words of the DTM
+inspect(cast_dtm3[1:5,1:8])
+```
+
+Use generic variable names for the DTM = source_dtm3 and the tokenize words = source_tidy3.
+```{r, warning=FALSE, message=FALSE}
+#assign the source dataset to generic var names
+
+source_dtm3 <- cast_dtm3
+source_tidy3 <- token_words3
+```
+
+### 2c. Look at DTM clusters
+We will create a dendogram to see if we can identify clusters from the document term matrix.
+Although we see three distinct groups here and there are not very many titles is is hard to know exactly what the topics might be in rlation to our research questions.
+```{r}
+dend<- source_dtm3 %>% dist() %>% hclust(method= "ward.D") %>%
+       as.dendrogram() %>%
+       set_labels(tidy_data3$title) %>%
+       color_branches(h= 145) %>%
+       color_labels(h= 145) %>%
+       set("labels_cex", 0.8)
+  
+par(mar= c(1,1,1,25))
+plot(dend, horiz= TRUE, main= "MI Abstracts: Clustering based on DTM")
+```
+
+
+# 3. MODEL
+
+### 3a. Fit Topic Model 
+We will use the GIBBS sampling method with the default VEM. We will classify documents into Topics based on the mean of gamma for a topic/source. 
+The K - means number of documents we are using is equal to the field number of five.
+- i. look at the class of the LDA object
+- ii. inspect the topics
+```{r, warning=FALSE, message=FALSE}
+k <- 5 #number of topics
+seed = 1234 #necessary for reproducibility
+#fit the model 
+#you could have more control parameters but will just use seed here
+lda <- LDA(source_dtm3, k = k, method = "GIBBS", control = list(seed = seed))
+#examine the class of the LDA object
+class(lda)
+
+
+#inspect lda topics
+lda
+```
+# 4. EXPLORE
+
+### 4a. Beta Values
+Jiang (2022) notes that "hidden within our topic model object we created are per-topic-per-word probabilities, called β ("beta")." It is the probability of a term (word) belonging to a topic. We will extract the per-topic-per-word probabilities, called β from the model and show top 5 results in each topic.
+
+the model into a one-topic-per-term-per-row format. For each combination, the model computes the probability of that term being generated from that topic. For example, the term “learning” has a .005831242 probability of being generated from topic 1, but only a .003388223 from topic 5.
+```{r, warning=FALSE, message=FALSE}
+topics <- tidy(lda, matrix = "beta")
+topics%>%
+  head %>%
+  kbl(caption = "Term Probability by topic") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+```
+Now let's look at the Top Beta Terms
+```{r, warning=FALSE, message=FALSE}
+review_topics3 <- tidy(lda, matrix = "beta")
+
+top_terms <- review_topics3 %>%
+  group_by(topic) %>%
+  slice_max(beta, n = 5) %>% 
+
+  ungroup() %>%
+  arrange(topic, -beta)
+
+top_terms%>%
+  head %>%
+  group_by(topic)%>%
+  kbl(caption = "Top terms by Beta") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"))
+  
+```
+
+
+Here we are seeing there are few words that may need to be stemed or included in stop words - like student and students, and bold may be part of the html...i'll have to look again.....
+```{r, warning = FALSE, message=FALSE}
+# this is part set up for topics over time
+topterms2 <- tidy(lda, matrix = "beta") %>%
+  group_by(topic) %>%
+  arrange(topic, desc(beta)) %>%
+  slice(seq_len(6)) %>%
+  arrange(topic, beta) %>%
+  mutate(row = row_number()) %>%
+  ungroup() %>%
+  mutate(topic = paste("Topic", str_pad(topic,width= 2, pad="0"), sep = " "))
+
+#plot topterms2
+topterms2 %>%
+  mutate(topic = factor(topic),
+         term = reorder_within(term, beta, topic)) %>%
+  ggplot(aes(term, beta, fill = log(beta))) +
+  geom_bar(stat = "identity", show.legend = FALSE, color= "grey20", size= 0.2) +
+  scale_x_reordered() +
+  facet_wrap(~ topic, scales = "free", ncol = 3) +
+  coord_flip() +
+  theme_minimal() +
+  scale_fill_distiller(palette = "RdYlBu") +
+  theme(legend.position = 'none',
+        panel.grid = element_blank(),
+        axis.text.y = element_text(size= 10),
+        axis.text.x = element_blank(),
+        plot.margin = margin(0.5, 1, 0.5, 0.5, "cm")) +
+  labs(title= "MI Literature review: Strongest Words by Topic", y= NULL, x= NULL)
+```
+
+
+
+Finally, inspecting the terms in a nice layout for comparison of what is in each topic. We inspect 10 terms that are most common within each topic. 
+```{r, message = FALSE, warning = FALSE }
+num_words <- 10 #number of words to visualize
+
+#create function that accepts the lda model and num word to display
+top_terms_per_topic <- function(lda_model, num_words) {
+
+  #tidy LDA object to get word, topic, and probability (beta)
+topics_tidy <- tidy(lda_model, matrix = "beta")
+
+  top_terms <- topics_tidy %>%
+  group_by(topic) %>%
+  arrange(topic, desc(beta)) %>%
+  #get the top num_words PER topic
+  slice(seq_len(num_words)) %>%
+  arrange(topic, beta) %>%
+  #row is required for the word_chart() function
+  mutate(row = row_number()) %>%
+  ungroup() %>%
+  #add the word Topic to the topic labels
+  mutate(topic = paste("Topic", topic, sep = " "))
+  #create a title to pass to word_chart
+  title <- paste("LDA Top Terms for", k, "Topics")
+  #call the word_chart function 
+  word_chart(top_terms, top_terms$term, title)
+}
+```
+
+#REVIST THIS ONE...
+I am not sure I am going to use this. I wanted a stacked bar graph with the topics by year. I went to the Data visualization and this is what he showed me. It has potential but I am not sure it is the time I'm looking for.
+```{r warning=FALSE, message=FALSE}
+top_terms_per_topic(lda, num_words)
+library(ggplot2)
+ggplot(data = tidy_data3, aes(x=tidy_data3$published_year, fill = tidy_data3$document)) +geom_histogram()
+```
+
+### 4b. Gamma 
+
+Silge & Robinson (2017) state, "besides estimating each topic as a mixture of words, LDA also models each document as a mixture of topics. We can examine the per-document-per-topic probabilities, called 
+γ(“gamma”), with the matrix = "gamma" argument to tidy().
+
+Show relationship between topic and journal document field.
+```{r warning=FALSE, message=FALSE}
+tidy_data3
+#using tidy with gamma gets document probabilities into topic
+#but only have document, topic and gamma
+source_topic_relationship <- tidy(lda, matrix = "gamma") %>%
+  #join to orig tidy data bydoc to get the source field
+  inner_join(tidy_data3, by = "document") %>%
+  select(document, topic, gamma) %>%
+  group_by(document, topic) %>%
+  #get the avg doc gamma value per source/topic
+  mutate(mean = mean(gamma)) %>%
+  #remove the gamma value as you only need the mean
+  select(-gamma) %>%
+  #removing gamma created duplicates so remove them
+  distinct()
+
+#relabel topics to include the word Topic
+source_topic_relationship$topic = paste("Topic", source_topic_relationship$topic, sep = " ")
+
+circos.clear() #very important! Reset the circular layout parameters
+#assign colors to the outside bars around the circle
+grid.col = c("Education" = my_colors[1],
+             "Science" = my_colors[2],
+             "AI" = my_colors[3],
+             "Technology" = my_colors[4],
+             "Engineering"= my_colors[5],
+             "Topic 1" = "grey", "Topic 2" = "grey", "Topic 3" = "grey", "Topic 4" = "grey", "Topic 5" = "grey")
+
+# set the global parameters for the circular layout. Specifically the gap size (15)
+#this also determines that topic goes on top half and source on bottom half
+circos.par(gap.after = c(rep(5, length(unique(source_topic_relationship[[1]])) - 1), 15,
+                         rep(5, length(unique(source_topic_relationship[[2]])) - 1), 15))
+#main function that draws the diagram. transparancy goes from 0-1
+chordDiagram(source_topic_relationship, grid.col = grid.col, transparency = .2)
+title("Relationship Between Topic and Journal Field")
+```
+
+### 4c Combine Gamma and Beta
+
+```{r warning=FALSE, message=FALSE}
+#save to beta var
+td_beta <- tidy(lda)
+#save to gamma var
+td_gamma <- tidy(lda, matrix = "gamma")
+#copy Julia Silge code to combine
+top_terms <- td_beta %>%
+  arrange(beta) %>%
+  group_by(topic) %>%
+  top_n(7, beta) %>%
+  arrange(-beta) %>%
+  select(topic, term) %>%
+  summarise(terms = list(term)) %>%
+  mutate(terms = map(terms, paste, collapse = ", ")) %>% 
+  unnest()
+
+gamma_terms <- td_gamma %>%
+  group_by(topic) %>%
+  summarise(gamma = mean(gamma)) %>%
+  arrange(desc(gamma)) %>%
+  left_join(top_terms, by = "topic") %>%
+  mutate(topic = paste0("Topic ", topic),
+         topic = reorder(topic, gamma))
+
+gamma_terms %>%
+  select(topic, gamma, terms) %>%
+  kable(digits = 3, 
+        col.names = c("Topic", "Expected topic proportion", "Top 7 terms"))
+```
+Let's assign the top terms to a label. We wil use this later on but it helps us know the key words that are influential in each topic.
+
+```{r, warning = FALSE, message=FALSE}
+topicLabels<- topterms2 %>%
+  ungroup() %>%
+  arrange(topic, desc(beta)) %>%
+  group_by(topic)%>% 
+  mutate(Order= order(desc(beta))) %>%
+  filter(Order < 5) %>%
+  summarise(Label= str_c(term, collapse=" ")) %>%
+  mutate(topic= str_sub(topic, 7),
+         Label= paste0(topic,": ", str_to_sentence(Label)),
+         topic= as.numeric(topic)) %>%
+  print()
+
+```
+
+
+My prediction of the topics are as follows:
+-**Topic 1** is about intelligent tutoring systems 
+-**Topic 2** is about 
+-**Topic 3** is about 
+-**Topic 4** is about
+-**Topic 5** is about
+
+
+### 4d. Fit Model 2 K-Means
+
+The structure of the k-means object reveals two important pieces of information: clusters and centers. k-means clustering, each document—can be assigned to one, and only one, cluster.
+To get a more stable K means we will set 'nstart' to 25. This will try 25 different random starting assignments and then select the best results corresponding to the one with the lowest within cluster variation.
+
+```{r message=FALSE, warning=FALSE}
+source_dtm2 <- cast_dtm3
+source_tidy2 <- token_words3
+#Set a seed for replicable results
+set.seed(1234)
+k <- 4
+kmeansResult <- kmeans(source_dtm2, k, nstart = 25)
+str(kmeansResult)
+```
+
+
+Let's visualize what is going on her. Looks like we have 4 clusters with education in cluster 3, technology in cluster 4, engineering, ai in cluster 1 and science in cluster 2.
+The size is not very large at all.
+
+```{r message=FALSE, warning=FALSE}
+kmeansResult$cluster
+#cluster size
+kmeansResult$size
+
+```
+Intelligence is in all four clusters, but falls mainly in cluster three.
+```{r message=FALSE, warning=FALSE }
+head(kmeansResult$centers[,"intelligent"])
+```
+
+
+Let's take a look at "ai" and see how many times it appears in the topics.
+
+```{r message=FALSE, warning=FALSE}
+head(kmeansResult$centers[,"ai"])
+```
+AI also seems to appear the most in Topic 3.
+
+
+#### K Means top terms
+
+```{r message=FALSE, warning=FALSE}
+num_words <- 8 #number of words to display
+#get the top words from the kmeans centers
+kmeans_topics <- lapply(1:k, function(i) {
+  s <- sort(kmeansResult$centers[i, ], decreasing = T)
+  names(s)[1:num_words]
+})
+
+#make sure it's a data frame
+kmeans_topics_df <- as.data.frame(kmeans_topics)
+#label the topics with the word Topic
+names(kmeans_topics_df) <- paste("Topic", seq(1:k), sep = " ")
+#create a sequential row id to use with gather()
+kmeans_topics_df <- cbind(id = rownames(kmeans_topics_df),
+                          kmeans_topics_df)
+kmeans_topics_df
+
+#transpose it into the format required for word_chart()
+kmeans_top_terms <- kmeans_topics_df %>% 
+  gather(id)
+  colnames(kmeans_top_terms) = c("topic", "term")
+
+kmeans_top_terms <- kmeans_top_terms %>%
+  group_by(topic) %>%
+  mutate(row = row_number()) %>% #needed by word_chart()
+  ungroup()
+
+title <- paste("K-Means Top Terms for", k, "Topics")
+word_chart(kmeans_top_terms, kmeans_top_terms$term, title)
+```
+### 2 dimensional space tSNE
+let's see what top clustering terms look like in two dimensional space.
+
+```{r, warning=FALSE, message=FALSE}
+mytSNE<- function(thematrix){
+  perplex<- round(sqrt(nrow(thematrix)))
+  res<- Rtsne::Rtsne(thematrix, dims= 2, perplexity= 1)
+  resdf<- data.frame(x= res$Y[,1], y= res$Y[,2])
+  resdf$x<- resdf$x + rnorm(nrow(resdf),0, 0.2)  # Add some noise 
+  resdf$y<- resdf$y + rnorm(nrow(resdf),0, 0.2)
+  return(resdf)
+}
+
+bt<-      lda %>% tidy(matrix= "beta") %>% spread(term, beta) 
+hc<-      bt %>% dist() %>% hclust(method= "ward.D")
+library(dendextend)
+library(Rtsne)
+tsne<-    mytSNE(bt) %>%
+  mutate(text=str_wrap(topicLabels$Label,5), color= cutree(hc, h=0.12))
+
+library(RColorBrewer)
+ggplot(tsne, aes(x= x, y=y, color= factor(color))) +
+  geom_text_repel(aes(label= text), segment.alpha= 0, fontface= "bold")  +
+  theme_bw() +
+  theme(legend.position = "none",
+        panel.grid = element_blank()
+        ) +
+  scale_color_manual(values= brewer.pal(8,"Set2")) +
+  labs(title= "Cluster topics in 2-Dimensional Space (tSNE)")
+```
+
+
+### 4e Topics over time
+To answer our research question of how 
+
+# MI abstracts by Highest Topic Gamma
+An alternative method for grouping talks together would be to assign each talk to the topic with which they had the highest gamma score. This means some overlapping information is lost, but helps us sort the talks into categories.
+
+```{r message=FALSE, warning=FALSE}
+titleRef<- tidy_data3 %>% select(document = number, title, published_year) %>% mutate(document= as.character(document))
+
+dt0<- lda %>% tidy("gamma")
+dt2<- dt0 %>% arrange(document, desc(gamma)) %>% group_by(document) %>% slice(1)
+dt2<- dt2 %>% left_join(titleRef) %>% left_join(topicLabels)
+
+dt2<- dt2 %>% ungroup() %>% group_by(topic) %>% mutate(Order= order(gamma))
+
+ggplot(dt2, aes(x= gamma, y= factor(Order), group= Label, fill= Label)) +
+  geom_col(width=1) +
+  geom_text(aes(x= 0.01, y= Order, label= title), hjust= 0, size= 3, fontface= "bold", color= "white") +
+  scale_x_continuous(limits = c(0, 1), expand = c(0, 0)) +
+  facet_wrap(~Label, scales= "free_y", ncol= 3) +
+  theme(legend.position= "none",
+        panel.background = element_rect(fill= "grey30"),
+        panel.grid = element_blank(),
+        strip.background = element_rect(fill= "black"),
+        strip.text = element_text(face= "bold", color= "white", size= 10),
+        axis.text.y =  element_blank(),
+        axis.ticks.y = element_blank()) +
+  labs(title= "MI Abstracts by Topic Cluster", x= "Gamma", y=NULL)
+```
+
+
+```{r message=FALSE, warning=FALSE}
+byYear<- dt0 %>% left_join(titleRef) %>% left_join(topicLabels) %>%
+  filter(published_year!= 2021) %>% group_by(published_year,topic, Label) %>% summarise(Sum_gamma= sum(gamma))
+yearTotals<- byYear %>% group_by(published_year) %>% summarise(total_gamma= sum(Sum_gamma))
+
+trendRef<- data.frame(
+  stringsAsFactors = FALSE,
+                        topic = c(4L,5L, 2L,1L,3L),
+                        trend = c("Decreasing","Increasing Worm", "Lump", "Rocky","Worm"))
+
+byYear<- left_join(byYear, yearTotals) %>% mutate(pc= Sum_gamma/total_gamma) %>% left_join(trendRef)
+thetrends<- names(table(trendRef$trend))
+for (k in 1:length(thetrends)) {
+  sett<- byYear %>% filter(trend==thetrends[k])
+  
+g<- ggplot(sett, aes(x= published_year, y=pc, fill= Label)) +
+  geom_area(aes(group= Label), position= "stack", color= "grey20", size= 0.3, show.legend = TRUE, alpha= 0.7) +
+  labs(title= paste("Trend over time:",thetrends[k]), fill= "Topic", y= "Percent of Gamma by Year") +
+  theme_bw() +
+  ylim(0, 0.7) +
+  scale_x_continuous(breaks= unique(byYear$published_year)) +
+  theme(axis.text.x = element_text(angle= 90))
+print(g)  
+}
+```
+
+
+# 5 Communication
+
+
+## References:
+
+Coppin, B. (2004). Artificial intelligence illuminated. Jones & Bartlett Learning.
+
+Data Novia. (2022). K-Means Clustering in R: Algorithm and Practical Examples https://www.datanovia.com/en/lessons/k-means-clustering-in-r-algorith-and-practical-examples/
+
+Simonite, T. (2014). 2014 in Computing: Breakthroughs in Artificial Intelligence.
+
+Warwick, K. (2013). Artificial intelligence: the basics. Routledge.
+
+Whitby, B. (2009). Artificial intelligence. The Rosen Publishing Group, Inc.
+
+https://rpubs.com/CelMcC/645438
